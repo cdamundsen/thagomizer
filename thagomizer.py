@@ -1,5 +1,9 @@
 #! /usr/bin/env python
 
+import os
+import sys
+import textwrap
+
 import click
 import cv2
 import numpy as np
@@ -13,15 +17,18 @@ class FileToSmallException(Exception):
     def __init__(self, msg):
         self.message = msg
 
+class InputFileException(Exception):
+    def __init__(self, msg):
+        self.message = msg
 
 class Picture:
-    def __init__(self, filename: str, max_msg_bits = 16):
-        self.filename = filename
+    def __init__(self, filename: str):
+        self.filename = filename # The name of the input image file
         self.original = cv2.imread(filename)
         self.height, self.width, self.bytes_per_pixel = np.shape(self.original)
         self.flattened = self.original.flatten()
-        self.size_bits = max_msg_bits
-        self.num_size_bits = 24
+        self.size_bits = 16 # The maximum number of numbers in the input file that can be saved is 2^^16 - 1
+        self.num_size_bits = 24 # The maximum number in the input set that can be saved in the file is 2^^24 - 1
 
     def encode(self, msg: list[int]):
         if len(msg) > pow(2, self.size_bits) - 1:
@@ -107,22 +114,55 @@ class Picture:
         return new_number
 
 
-def get_image(file_name: str) -> np.ndarray:
-    """
-    import numpy as np
-    import cv2
-    m = cv2.imread("/Users/amundsen/Downloads/OhLawd.png")
-    h, w. bpp = np.shape(m)
-    h,w,bpp = np.shape(m)
-    print("width: " + str(w))
-    print(f"height: {h}")
-    print(f"bpp: {bpp}")
-    m[1][1]
-    import array
-    m[10][10] = (0, 0, 255)
-    cv2.imwrite('red_pixel.png', m)
-    """
-    img = cv2.imread(file_name)
-    print(dir(img))
-    return img
+def get_input(infile: str) -> list[int]:
+    with open(infile) as inf:
+        data = inf.read().split()
+    try:
+        data = [int(x) for x in data]
+    except ValueError as e:
+        msg = f"The input file must contain integers separated by whitespace.\n{e.args[0]}"
+        raise InputFileException(f"The input file must contain integers separated by whitespace.\n{e.args[0]}")
+    else:
+        return data
 
+@click.command()
+@click.option('--picture', '-p', type=click.Path(exists=True), default=None, help="The image file to be worked on. Required")
+@click.option('--output_file', '-o', type=click.Path(), default=None, help='The destination of the output file. Required')
+@click.option('--input_file', '-i', type=click.File('r'), help="The input file to be inserted into the image. Optional")
+@click.option('--insert', is_flag=True, help="Set this flag to insert the input file into the image.")
+@click.option('--extract', is_flag=True, help="Set this flag to extract the info from the the image.")
+def thagomizer(picture: click.File, output_file: click.Path, input_file: click.Path, insert: bool, extract: bool):
+    """
+    This the docstring
+    """
+    problems = []
+    if not picture:
+        problems.append("  * You must include an image file using the picture option")
+    if not output_file:
+        problems.append("  * You must include the path to an output file")
+    if insert and extract:
+        problems.append("  * You can only select insert or extract")
+    elif not (insert or extract):
+        problems.append("  * You must select insert or extract")
+    elif insert and not input_file:
+        problems.append("  * You have to inlude an input file to insert into the picture")
+    if problems:
+        problems.append("thagomizer.py --help for help")
+        problem_str = "\n".join(problems)
+        print(f"The following issues were found:\n{problem_str}")
+
+    p = Picture(picture)
+
+    if insert:
+        numbers = get_input(input_file)
+        p.encode(numbers)
+        p.save_image(output_file)
+    elif extract:
+        numbers = p.decode()
+        with open(output_file, 'w') as outf:
+            outf.write(textwrap.fill(numbers, width=80))
+
+
+
+if __name__ == '__main__':
+    thagomizer()
